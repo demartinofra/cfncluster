@@ -1,14 +1,15 @@
+dist: xenial
 language: python
 sudo: false
 
-python:
-  - "2.6"
-  - "2.7"
-  - "3.4"
-  - "3.5"
-  - "3.6"
+#python:
+#  - "2.6"
+#  - "2.7"
+#  - "3.4"
+#  - "3.5"
+#  - "3.6"
 
-matrix:
+jobs  :
   include:
   - name: Code Checks
     python: 3.6
@@ -22,10 +23,24 @@ matrix:
     python: 3.6
     stage: linters
     env: TOXENV=docs-linters
-
-before_install:
-  # Needed to run docs-linters target in tox.
-  - if [ "$TRAVIS_PYTHON_VERSION" == "3.6" ]; then sudo apt-get install -y enchant; fi
+    before_install:
+      # Needed to run docs-linters target in tox.
+      - if [ "$TRAVIS_PYTHON_VERSION" == "3.6" ]; then sudo apt-get install -y enchant; fi
+  - name: ShellCheck
+    stage: linters
+    install: sudo apt-get update && sudo apt-get install shellcheck
+    script: for file in $(find cli/ -type f -name "*.sh"); do shellcheck $file; done;
+    language: generic
+#jobs:
+#  include:
+#  - name: ShellCheck
+#    stage: linters
+#    script: for file in $(find cli/ -type f -name "*.sh"); do shellcheck $file; done;
+#    install:
+#
+#before_install:
+#  # Needed to run docs-linters target in tox.
+#  - if [ "$TRAVIS_PYTHON_VERSION" == "3.6" ]; then sudo apt-get install -y enchant; fi
 
 install:
   - pip install tox-travis
