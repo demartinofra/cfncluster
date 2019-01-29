@@ -56,6 +56,11 @@ slurm_get_slots() {
 torque_get_slots() {
     local -- chost ppn i=0
 
+    echo "pbsnodes" >&2
+    pbsnodes >&2
+    echo "pbsnodes -l free ; pbsnodes -l job-exclusive;" >&2
+    { pbsnodes -l free ; pbsnodes -l job-exclusive; } >&2
+
     chost=$({ pbsnodes -l free ; pbsnodes -l job-exclusive; } | head -n 1 | cut -d ' ' -f1)
     # wait 15 secs before giving up retrieving the slots per host
     while [ -z "${chost}" -a $i -lt 15 ]; do
@@ -67,7 +72,6 @@ torque_get_slots() {
 
     echo "chost: ${chost}" >&2
     echo "ppn: ${ppn}" >&2
-    $(pbsnodes) >&2
 
     echo ${ppn}
 }
