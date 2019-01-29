@@ -65,6 +65,10 @@ torque_get_slots() {
     done
     [ -n "${chost}" ] && ppn=$(pbsnodes ${chost} | tr -d '\t ' | sed -n '/np=/{s/^np=\([0-9]\+\)/\1/;p;}')
 
+    echo "chost: ${chost}" >&2
+    echo "ppn: ${ppn}" >&2
+    $(pbsnodes) >&2
+
     echo ${ppn}
 }
 
