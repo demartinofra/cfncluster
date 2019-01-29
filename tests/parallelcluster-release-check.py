@@ -486,9 +486,9 @@ def run_test(
         _double_writeln(out_f, "--> %s: Test jobs successfully started" % testname)
 
         _double_writeln(out_f, "--> %s: Monitoring asg capacity and compute nodes" % testname)
-        additional_watching_time = 5 * 60
+        additional_scaledonwn_time = 7 * 60
         asg_capacity_time_series, compute_nodes_time_series, timestamps = _watch_compute_nodes_allocation(
-            duration=max_jobs_exec_time + cluster_config.scaledown_idletime * 60 + additional_watching_time,
+            duration=max_jobs_exec_time + cluster_config.scaledown_idletime * 60 + additional_scaledonwn_time,
             frequency=20,
             cluster_config=cluster_config,
         )
