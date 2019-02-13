@@ -57,7 +57,7 @@ class Cluster:
         """
         if self.__cfn_outputs:
             return self.__cfn_outputs
-        self.__cfn_outputs = retrieve_cfn_outputs(self.name, self.region)
+        self.__cfn_outputs = retrieve_cfn_outputs(self.cfn_name, self.region)
         return self.__cfn_outputs
 
 
