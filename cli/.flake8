@@ -12,6 +12,7 @@ ignore =
 # D205 1 blank line required between summary line and description
 # D400 First line should end with a period
 # D401 First line should be in imperative mood
+# E501 line too long (142 > 120 characters)
 per-file-ignores =
     pcluster/*.py: D103
     pcluster/config_sanity.py: E402, D103
@@ -21,6 +22,7 @@ per-file-ignores =
     tests/awsbatch/test_*.py: D101, D102
     ../tests/integration-tests/tests/*: D103
     ../tests/integration-tests/*: D205, D400, D401
+    ../tests/integration-tests/benchmarks/test_scaling_performance.py: E501
 exclude =
     .tox,
     .git,

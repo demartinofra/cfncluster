@@ -142,6 +142,25 @@ The configuration for the custom templates and packages are automatically inject
 all cluster configs when these are rendered. In case any of these parameters is already set
 in the cluster config then the value in the config is used.
 
+### Benchmark and performance tests
+
+Performance tests are disabled by default due to the high resource utilization involved with their execution.
+In order to run performance tests you can use the following options:
+* `--benchmarks`: run benchmarks tests. This disables the execution of all tests defined under the tests directory.
+* `--benchmarks-target-capacity`: set the target capacity for benchmarks tests (default: 200).
+* `--benchmarks-max-time`: set the max waiting time in minutes for benchmarks tests (default: 30).
+
+The same filters by dimensions and features can be applied to this kind of tests.
+
+The output produced by the performance tests is stored under the following directory tree:
+```
+tests_outputs
+└── $timestamp..out
+    └── benchmarks: directory storing all cluster configs used by test
+            ├── test_scaling_speed.py-test_scaling_speed[c5.xlarge-eu-west-1-centos7-slurm].png
+            └── ...
+```
+
 ## Write Integration Tests
 
 All integration tests are defined in the `integration-tests/tests` directory.
@@ -475,3 +494,11 @@ def vpc(cfn_stacks_factory):
     cfn_stacks_factory.create_stack(stack)
     return stack
 ```
+
+### Benchmark and performance tests
+
+Benchmark and performance tests follow the same rules described above for a normal integration test.
+The only differences are the following:
+- the tests are defined under the `benchmarks/` directory
+- they are not executed by default with the rest of the integration tests
+- they write their output to a specific benchmarks directory created in the output dir

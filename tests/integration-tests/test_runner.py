@@ -63,6 +63,9 @@ TEST_DEFAULTS = {
     "custom_awsbatch_template_url": None,
     "custom_awsbatchcli_url": None,
     "custom_ami": None,
+    "benchmarks": False,
+    "benchmarks_target_capacity": 200,
+    "benchmarks_max_time": 30,
 }
 
 
@@ -152,6 +155,24 @@ def _init_argparser():
     parser.add_argument(
         "--custom-ami", help="custom AMI to use for all tests.", default=TEST_DEFAULTS.get("custom_ami")
     )
+    parser.add_argument(
+        "--benchmarks",
+        help="run benchmarks tests. This disables the execution of all tests defined under the tests directory.",
+        action="store_true",
+        default=TEST_DEFAULTS.get("benchmarks"),
+    )
+    parser.add_argument(
+        "--benchmarks-target-capacity",
+        help="set the target capacity for benchmarks tests",
+        default=TEST_DEFAULTS.get("benchmarks_target_capacity"),
+        type=int,
+    )
+    parser.add_argument(
+        "--benchmarks-max-time",
+        help="set the max waiting time in minutes for benchmarks tests",
+        default=TEST_DEFAULTS.get("benchmarks_max_time"),
+        type=int,
+    )
 
     return parser
 
@@ -163,7 +184,17 @@ def _is_file(value):
 
 
 def _get_pytest_args(args, regions, log_file, out_dir):
-    pytest_args = ["-s", "-vv", "-l", "--rootdir=./tests"]
+    pytest_args = ["-s", "-vv", "-l"]
+
+    if args.benchmarks:
+        pytest_args.append("--ignore=./tests")
+        pytest_args.append("--root=./benchmarks")
+        pytest_args.append("--benchmarks-target-capacity={0}".format(args.benchmarks_target_capacity))
+        pytest_args.append("--benchmarks-max-time={0}".format(args.benchmarks_max_time))
+    else:
+        pytest_args.append("--root=./tests")
+        pytest_args.append("--ignore=./benchmarks")
+
     # Show all tests durations
     pytest_args.append("--durations=0")
     # Run only tests with the given markers
