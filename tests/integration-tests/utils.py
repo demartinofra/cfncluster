@@ -70,6 +70,22 @@ def retrieve_cfn_outputs(stack_name, region):
 
 
 @retry(wait_exponential_multiplier=500, wait_exponential_max=5000, stop_max_attempt_number=5)
+def retrieve_cfn_tags(stack_name, region):
+    """Retrieve CloudFormation Stack Outputs from a given stack."""
+    logging.debug("Retrieving stack tags for stack {}".format(stack_name))
+    try:
+        cfn = boto3.client("cloudformation", region_name=region)
+        stack = cfn.describe_stacks(StackName=stack_name).get("Stacks")[0]
+        tags = {}
+        for tag in stack.get("Tags", []):
+            tags[tag.get("Key")] = tag.get("Value")
+        return tags
+    except Exception as e:
+        logging.warning("Failed retrieving stack tags for stack {} with exception: {}".format(stack_name, e))
+        raise
+
+
+@retry(wait_exponential_multiplier=500, wait_exponential_max=5000, stop_max_attempt_number=5)
 def retrieve_cfn_resources(stack_name, region):
     """Retrieve CloudFormation Stack Resources from a given stack."""
     logging.debug("Retrieving stack resources for stack {}".format(stack_name))

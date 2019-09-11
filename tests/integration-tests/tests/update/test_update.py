@@ -9,6 +9,7 @@
 # or in the "LICENSE.txt" file accompanying this file.
 # This file is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express or implied.
 # See the License for the specific language governing permissions and limitations under the License.
+import json
 import time
 from collections import namedtuple
 
@@ -29,6 +30,7 @@ PClusterConfig = namedtuple(
         "compute_root_volume_size",
         "s3_read_resource",
         "s3_read_write_resource",
+        "tags",
     ],
 )
 
@@ -48,6 +50,7 @@ def test_update(instance, region, pcluster_config_reader, clusters_factory, test
         compute_root_volume_size=30,
         s3_read_resource=s3_arn,
         s3_read_write_resource=s3_arn,
+        tags='{"tag1":"tag1-value", "tag2":"tag2-value", "tag3":"tag3-value"}',
     )
     cluster = _init_cluster(clusters_factory, pcluster_config_reader, init_config)
     command_executor = RemoteCommandExecutor(cluster)
@@ -62,6 +65,7 @@ def test_update(instance, region, pcluster_config_reader, clusters_factory, test
         compute_root_volume_size=40,
         s3_read_resource=s3_arn_updated,
         s3_read_write_resource=s3_arn_updated,
+        tags='{"tag1":"tag1-value", "tag2":"tag2-value-edited", "tag3-edited":"tag3-value"}',
     )
     _update_cluster(cluster, updated_config)
 
@@ -69,6 +73,7 @@ def test_update(instance, region, pcluster_config_reader, clusters_factory, test
     _test_max_queue(region, cluster.cfn_name, updated_config.max_queue_size)
     _test_s3_read_resource(region, cluster, updated_config.s3_read_resource)
     _test_s3_read_write_resource(region, cluster, updated_config.s3_read_write_resource)
+    _test_tags(cluster, json.loads(updated_config.tags))
 
     # verify params that are NOT updated in OLD compute nodes
     compute_nodes = slurm_commands.get_compute_nodes()
@@ -86,13 +91,7 @@ def test_update(instance, region, pcluster_config_reader, clusters_factory, test
 
 def _init_cluster(clusters_factory, pcluster_config_reader, config):
     # read configuration and create cluster
-    cluster_config = pcluster_config_reader(
-        max_queue_size=config.max_queue_size,
-        compute_instance_type=config.compute_instance_type,
-        compute_root_volume_size=config.compute_root_volume_size,
-        s3_read_resource=config.s3_read_resource,
-        s3_read_write_resource=config.s3_read_write_resource,
-    )
+    cluster_config = pcluster_config_reader(**config._asdict())
     cluster = clusters_factory(cluster_config)
     return cluster
 
@@ -102,6 +101,7 @@ def _verify_initialization(command_executor, slurm_commands, region, test_datadi
     _test_max_queue(region, cluster.cfn_name, config.max_queue_size)
     _test_s3_read_resource(region, cluster, config.s3_read_resource)
     _test_s3_read_write_resource(region, cluster, config.s3_read_write_resource)
+    _test_tags(cluster, json.loads(config.tags))
 
     # Verify Compute nodes initial settings
     compute_nodes = slurm_commands.get_compute_nodes()
@@ -118,6 +118,7 @@ def _update_cluster(cluster, config):
     _update_cluster_property(cluster, "compute_root_volume_size", str(config.compute_root_volume_size))
     _update_cluster_property(cluster, "s3_read_resource", config.s3_read_resource)
     _update_cluster_property(cluster, "s3_read_write_resource", config.s3_read_write_resource)
+    _update_cluster_property(cluster, "tags", config.tags)
     # rewrite configuration file starting from the updated cluster.config object
     with open(cluster.config_file, "w") as configfile:
         cluster.config.write(configfile)
@@ -207,3 +208,12 @@ def _test_s3_read_resource(region, cluster, s3_arn):
 
 def _test_s3_read_write_resource(region, cluster, s3_arn):
     _test_policy_statement(region, cluster, "S3ReadWrite", s3_arn)
+
+
+def _test_tags(cluster, expected_tags):
+    tags = cluster.cfn_tags
+    # Version tag is automatically added by the cli
+    assert_that(tags).is_length(len(expected_tags) + 1)
+    assert_that(tags).contains_key("Version")
+    for k, v in expected_tags.items():
+        assert_that(tags).contains_entry({k: v})

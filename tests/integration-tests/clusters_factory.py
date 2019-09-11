@@ -16,7 +16,13 @@ import boto3
 import configparser
 from retrying import retry
 
-from utils import retrieve_cfn_outputs, retrieve_cfn_resources, retry_if_subprocess_error, run_command
+from utils import (
+    retrieve_cfn_outputs,
+    retrieve_cfn_resources,
+    retrieve_cfn_tags,
+    retry_if_subprocess_error,
+    run_command,
+)
 
 
 class Cluster:
@@ -30,6 +36,7 @@ class Cluster:
         self.config.read(config_file)
         self.__cfn_outputs = None
         self.__cfn_resources = None
+        self.__cfn_tags = None
 
     def update(self, reset_desired=False, extra_params=None):
         """
@@ -55,6 +62,7 @@ class Cluster:
         # reset cached properties
         self.__cfn_outputs = None
         self.__cfn_resources = None
+        self.__cfn_tags = None
 
     @property
     def cfn_name(self):
@@ -107,6 +115,16 @@ class Cluster:
         if not self.__cfn_resources:
             self.__cfn_resources = retrieve_cfn_resources(self.cfn_name, self.region)
         return self.__cfn_resources
+
+    @property
+    def cfn_tags(self):
+        """
+        Return the CloudFormation stack resources for the cluster.
+        Resources are retrieved only once and then cached.
+        """
+        if not self.__cfn_tags:
+            self.__cfn_tags = retrieve_cfn_tags(self.cfn_name, self.region)
+        return self.__cfn_tags
 
 
 class ClustersFactory:
