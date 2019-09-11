@@ -203,7 +203,7 @@ def update(args):  # noqa: C901 FIXME!!!
         aws_access_key_id=config.aws_access_key_id,
         aws_secret_access_key=config.aws_secret_access_key,
     )
-
+    cfn_stack = cfn.describe_stacks(StackName=stack_name).get("Stacks")[0]
     if config.parameters.get("Scheduler") != "awsbatch":
         asg = boto3.client(
             "autoscaling",
@@ -223,7 +223,7 @@ def update(args):  # noqa: C901 FIXME!!!
     else:
         if args.reset_desired:
             LOGGER.info("reset_desired flag does not work with awsbatch scheduler")
-        params = cfn.describe_stacks(StackName=stack_name).get("Stacks")[0].get("Parameters")
+        params = cfn_stack.get("Parameters")
 
         for parameter in params:
             if parameter.get("ParameterKey") == "ResourcesS3Bucket":
@@ -251,9 +251,13 @@ def update(args):  # noqa: C901 FIXME!!!
         LOGGER.debug(config.parameters)
 
         cfn_params = [{"ParameterKey": key, "ParameterValue": value} for key, value in config.parameters.items()]
+        tags = [{"Key": t, "Value": config.tags[t]} for t in config.tags]
+        version_tag = next((tag for tag in cfn_stack.get("Tags") if tag["Key"] == "Version"), None)
+        if version_tag:
+            tags.append(version_tag)
         LOGGER.info("Calling update_stack")
         cfn.update_stack(
-            StackName=stack_name, UsePreviousTemplate=True, Parameters=cfn_params, Capabilities=capabilities
+            StackName=stack_name, UsePreviousTemplate=True, Parameters=cfn_params, Capabilities=capabilities, Tags=tags
         )
         status = cfn.describe_stacks(StackName=stack_name).get("Stacks")[0].get("StackStatus")
         if not args.nowait:
