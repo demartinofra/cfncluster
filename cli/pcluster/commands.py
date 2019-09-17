@@ -36,9 +36,9 @@ import pkg_resources
 from botocore.exceptions import ClientError
 from tabulate import tabulate
 
-from pcluster.utils import get_installed_version, get_param_value, get_stack_output_value, verify_stack_creation
-
-from . import cfnconfig, utils
+from pcluster import cfnconfig, utils
+from pcluster.dcv.utils import DCV_CONNECT_SCRIPT
+from pcluster.utils import get_installed_version, get_stack_output_value, get_stack_param_value, verify_stack_creation
 
 if sys.version_info[0] >= 3:
     from urllib.request import urlretrieve
@@ -680,7 +680,7 @@ def command(args, extra_args, return_output=False):  # noqa: C901 FIXME!!!
             ip = _get_master_server_ip(stack, config)
             template = cfn.get_template(StackName=stack)
             mappings = template.get("TemplateBody").get("Mappings").get("OSFeatures")
-            base_os = get_param_value(stack_result.get("Parameters"), "BaseOS")
+            base_os = get_stack_param_value(stack_result.get("Parameters"), "BaseOS")
             username = mappings.get(base_os).get("User")
 
         try:
@@ -700,8 +700,11 @@ def command(args, extra_args, return_output=False):  # noqa: C901 FIXME!!!
                     return sub.check_output(cmd, shell=True, stderr=sub.STDOUT)
                 except sub.CalledProcessError as e:
                     error = e.output.decode("utf-8")
-                    if "/opt/parallelcluster/scripts/pcluster_dcv_connect.sh: No such file or directory" in error:
-                        LOGGER.error("The version of ParallelCluster in the machine does not support DCV")
+                    if "{0}: No such file or directory".format(DCV_CONNECT_SCRIPT) in error:
+                        LOGGER.error(
+                            "The cluster {0} has been created with an old version of ParallelCluster "
+                            "without the DCV support.".format(args.cluster_name)
+                        )
                     else:
                         LOGGER.error(error)
                     sys.exit(1)

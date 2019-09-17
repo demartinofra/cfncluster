@@ -228,17 +228,6 @@ def get_supported_schedulers():
     return "sge", "torque", "slurm", "awsbatch"
 
 
-def get_stack_output_value(stack_outputs, output_key):
-    """
-    Get output value from Cloudformation Stack Output.
-
-    :param stack_outputs: Cloudformation Stack Outputs
-    :param output_key: Output Key
-    :return: OutputValue if that output exists, otherwise None
-    """
-    return next((o.get("OutputValue") for o in stack_outputs if o.get("OutputKey") == output_key), None)
-
-
 def verify_stack_creation(cfn_client, stack_name):
     """
     Wait for the stack creation to be completed and notify if the stack creation fails.
@@ -301,17 +290,23 @@ def check_if_latest_version():
         pass
 
 
-def get_param_value(params, key_name):
+def get_stack_output_value(stack_outputs, output_key):
     """
-    Get parameter value from Cloudformation Stack Parameters.
+    Get output value from CloudFormation Stack Output.
 
-    :param params: Cloudformation Stack Parameters
+    :param stack_outputs: CloudFormation Stack Outputs
+    :param output_key: Output Key
+    :return: OutputValue if that output exists, otherwise None
+    """
+    return next((o.get("OutputValue") for o in stack_outputs if o.get("OutputKey") == output_key), None)
+
+
+def get_stack_param_value(stack_params, key_name):
+    """
+    Get parameter value from CloudFormation Stack Parameters.
+
+    :param stack_params: CloudFormation Stack Parameters
     :param key_name: Parameter Key
     :return: ParameterValue if that parameter exists, otherwise None
     """
-    return next((i.get("ParameterValue") for i in params if i.get("ParameterKey") == key_name), None)
-
-
-def get_supported_dcv_os():
-    """Return a list of all the operating system supported by DCV."""
-    return ["centos7"]
+    return next((i.get("ParameterValue") for i in stack_params if i.get("ParameterKey") == key_name), None)

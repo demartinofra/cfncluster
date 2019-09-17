@@ -1821,7 +1821,16 @@
               "Effect": "Allow",
               "Action": "s3:GetObject",
               "Resource": {
-                "Fn::Join": ["", ["arn:aws:s3:::dcv-license.", {"Ref": "AWS::Region"}, "/*"]]
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:aws:s3:::dcv-license.",
+                    {
+                      "Ref": "AWS::Region"
+                    },
+                    "/*"
+                  ]
+                ]
               }
             }
           ]
@@ -3588,7 +3597,7 @@
             }
           },
           {
-            "Fn::If" : [
+            "Fn::If": [
               "DCVEnabled",
               {
                 "IpProtocol": "tcp",
@@ -3632,7 +3641,9 @@
                   ]
                 }
               },
-              {"Ref" : "AWS::NoValue"}
+              {
+                "Ref": "AWS::NoValue"
+              }
             ]
           }
         ]

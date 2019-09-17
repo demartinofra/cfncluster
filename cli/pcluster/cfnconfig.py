@@ -26,11 +26,11 @@ import configparser
 from botocore.exceptions import ClientError
 
 from pcluster.config_sanity import ResourceValidator
+from pcluster.dcv.utils import get_supported_dcv_os
 from pcluster.utils import (
     check_if_latest_version,
     get_installed_version,
     get_instance_vcpus,
-    get_supported_dcv_os,
     get_partition,
     get_supported_features,
     get_templates_bucket_path,

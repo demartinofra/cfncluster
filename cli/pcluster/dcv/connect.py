@@ -1,4 +1,4 @@
-# Copyright 2013-2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You may not use this file except in compliance
 # with the License. A copy of the License is located at
@@ -18,7 +18,8 @@ from botocore.exceptions import ClientError
 
 from pcluster import cfnconfig
 from pcluster.commands import command
-from pcluster.utils import get_param_value, get_stack_output_value
+from pcluster.dcv.utils import DCV_CONNECT_SCRIPT
+from pcluster.utils import get_stack_output_value, get_stack_param_value
 
 LOGGER = logging.getLogger(__name__)
 
@@ -29,8 +30,8 @@ def _get_stack(args):
     cfn = boto3.client(
         "cloudformation",
         region_name=config.region,
-        aws_access_key_id=config.aws_access_key_id,  # I would remove this backward compatibility
-        aws_secret_access_key=config.aws_secret_access_key,  # I would remove this backward compatibility
+        aws_access_key_id=config.aws_access_key_id,
+        aws_secret_access_key=config.aws_secret_access_key,
     )
     try:
         stack_result = cfn.describe_stacks(StackName=stack).get("Stacks")[0]
@@ -56,31 +57,34 @@ def dcv_connect(args):
     args.command = None
     args.dryrun = None
     commands = []
+
+    # Append ssh key
     if args.key_path:
         commands.append("-i {0}".format(args.key_path))
 
+    # Prepare ssh command to execute in the master instance to activate DCV session
     stack_result = _get_stack(args)
-    shared_dir = get_param_value(stack_result["Parameters"], "SharedDir")
-    command_to_execute = "/opt/parallelcluster/scripts/pcluster_dcv_connect.sh {0}".format(shared_dir)
-
+    shared_dir = get_stack_param_value(stack_result["Parameters"], "SharedDir")
+    command_to_execute = "{0} {1}".format(DCV_CONNECT_SCRIPT, shared_dir)
     commands.append(command_to_execute)
     ssh_command = _generate_ssh_command(commands)
 
+    # Connect by ssh to the master instance and prepare DCV session
     master_ip = get_stack_output_value(stack_result["Outputs"], "MasterPublicIP")
     try:
         output = command(args, ssh_command, return_output=True).decode("utf-8").strip().split(" ")
-        # if it is the first time we connect to the machine,
-        # ssh command will say that he added the host to the known hosts list.
+        # At first ssh connection, the ssh command alerts it is adding the host to the known hosts list
         if re.search("Permanently added .* to the list of known hosts.", " ".join(output)):
             output = command(args, ssh_command, return_output=True).decode("utf-8").strip().split(" ")
         session_id, port, token = output
     except ValueError:
         LOGGER.error(
-            "Something went wrong during DCV connection. Please try again. "
-            "If the problem persists, check the logs on the master."
+            "Something went wrong during DCV connection. Please try again. If the problem persists, "
+            "please check the logs in the /var/log/parallelcluster/ folder of the master instance."
         )
         sys.exit(1)
 
+    # Open web browser
     url = "https://{IP}:{PORT}?authToken={TOKEN}#{SESSION_ID}".format(
         IP=master_ip, PORT=port, TOKEN=token, SESSION_ID=session_id
     )
@@ -88,6 +92,6 @@ def dcv_connect(args):
         webbrowser.open_new(url)
     except webbrowser.Error:
         LOGGER.info(
-            "Unable to open browser automatically. Please open the following URL in your browser within 30 seconds:"
+            "Unable to open the Web browser. "
+            "Please use the following URL in your browser within 30 seconds:\n{0}".format(url)
         )
-        LOGGER.info(url)

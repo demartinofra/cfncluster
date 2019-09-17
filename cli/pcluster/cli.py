@@ -22,7 +22,7 @@ from botocore.exceptions import NoCredentialsError
 
 import pcluster.commands as pcluster
 from pcluster.configure import easyconfig
-from pcluster.dcv_connect import dcv_connect
+from pcluster.dcv.connect import dcv_connect
 
 LOGGER = logging.getLogger("pcluster.pcluster")
 
