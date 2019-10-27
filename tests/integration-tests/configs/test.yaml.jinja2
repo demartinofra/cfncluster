@@ -1,0 +1,34 @@
+{%- import 'common.jinja2' as common -%}
+---
+test-suites:
+  cfn-init:
+    test_cfn_init.py::test_replace_compute_on_failure:
+      dimensions:
+        - regions:
+            - {{ common.REGIONS_COMMERCIAL|random }}
+          instances:
+            - {{ common.INSTANCES_COMMERCIAL|random }}
+          oss: {{ common.OSS_COMMERCIAL }}
+          schedulers:
+            - {{ common.SCHEDULERS_TRAD|random }}
+        - regions:
+            - cn-north-1
+          instances:
+            - peppe
+          oss:
+            - a
+          schedulers:
+            - b
+  efa:
+    test_efa.py::test_efa:
+      dimensions:
+        - regions:
+            - {{ common.REGIONS_COMMERCIAL|random }}
+          instances: {{ common.INSTANCES_EFA }}
+          oss:
+            - alinux
+            - centos7
+            - ubuntu1604
+          schedulers:
+            - sge
+            - slurm

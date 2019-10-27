@@ -20,6 +20,10 @@ matrix:
     python: 3.6
     stage: linters
     env: TOXENV=cfn-format-check,cfn-lint
+ - name: CloudFormation Templates Checks
+   python: 3.6
+   stage: linters
+   env: TOXENV=validate-test-configs
 
 install:
   - pip install tox-travis

@@ -5,12 +5,14 @@ boto3
 fabric
 jinja2
 junitparser
+pykwalify
 pytest
 pytest-datadir
 pytest-html
 pytest-rerunfailures
 pytest-sugar
 pytest-xdist
+PyYAML
 retrying
 troposphere
 untangle
