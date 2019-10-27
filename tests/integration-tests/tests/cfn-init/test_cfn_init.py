@@ -17,14 +17,16 @@ from assertpy import assert_that
 from remote_command_executor import RemoteCommandExecutor
 from tests.common.assertions import assert_instance_replaced_or_terminating
 from tests.common.compute_logs_common import wait_compute_log
-from tests.common.schedulers_common import SlurmCommands
+from tests.common.schedulers_common import get_scheduler_commands
 
 
 @pytest.mark.regions(["eu-central-1"])
 @pytest.mark.instances(["c5.xlarge"])
 @pytest.mark.schedulers(["slurm"])
-@pytest.mark.usefixtures("os", "instance", "scheduler")
-def test_replace_compute_on_failure(region, pcluster_config_reader, clusters_factory, s3_bucket_factory, test_datadir):
+@pytest.mark.usefixtures("os", "instance")
+def test_replace_compute_on_failure(
+    region, scheduler, pcluster_config_reader, clusters_factory, s3_bucket_factory, test_datadir
+):
     """
     Test that compute nodes get replaced on userdata failures and logs get saved in shared directory.
 
@@ -38,8 +40,8 @@ def test_replace_compute_on_failure(region, pcluster_config_reader, clusters_fac
     remote_command_executor = RemoteCommandExecutor(cluster)
 
     # submit a job to spin up a compute node that will fail due to post_install script
-    sge_commands = SlurmCommands(remote_command_executor)
-    sge_commands.submit_command("sleep 1")
+    scheduler_commands = get_scheduler_commands(scheduler, remote_command_executor)
+    scheduler_commands.submit_command("sleep 1")
     instance_id = wait_compute_log(remote_command_executor)
 
     # extract logs and check one of them
