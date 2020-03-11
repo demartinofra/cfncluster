@@ -1518,11 +1518,7 @@
             {
               "Sid": "EC2",
               "Action": [
-                "ec2:DescribeVolumes",
-                "ec2:AttachVolume",
-                "ec2:DescribeInstanceAttribute",
-                "ec2:DescribeInstanceStatus",
-                "ec2:DescribeInstances"
+                "ec2:*"
               ],
               "Effect": "Allow",
               "Resource": [
@@ -2797,6 +2793,25 @@
                   true,
                   false
                 ]
+              },
+              "SubnetId": {
+                "Fn::If": [
+                  "UseMasterSubnetForCompute",
+                  {
+                    "Ref": "MasterSubnetId"
+                  },
+                  {
+                    "Fn::If": [
+                      "CreateComputeSubnetForCompute",
+                      {
+                        "Ref": "ComputeSubnet"
+                      },
+                      {
+                        "Ref": "ComputeSubnetId"
+                      }
+                    ]
+                  }
+                ]
               }
             }
           ],
@@ -3224,7 +3239,9 @@
                   {
                     "Ref": "AWS::StackName"
                   },
-                  " -v -c default -r ComputeServerLaunchTemplate --region ",
+                  " -v -c default --role ",
+                  { "Ref": "RootRole" },
+                  " -r ComputeServerLaunchTemplate --region ",
                   {
                     "Ref": "AWS::Region"
                   },
