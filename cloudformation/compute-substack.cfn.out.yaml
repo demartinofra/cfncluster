@@ -154,10 +154,62 @@ Resources:
             fi
 
             --==BOUNDARY==
+            Content-Type: text/cloud-config; charset=us-ascii
+            MIME-Version: 1.0
+
+            write_files:
+            - path: /tmp/dna.json
+              permissions: '0644'
+              owner: root:root
+              content: |
+                {
+                  "cfncluster": {
+                    "stack_name": "${MainStackName}",
+                    "enable_efa": "false",
+                    "cfn_raid_parameters": "NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE",
+                    "cfn_preinstall": "NONE",
+                    "cfn_preinstall_args": "NONE",
+                    "cfn_postinstall": "NONE",
+                    "cfn_postinstall_args": "NONE",
+                    "cfn_region": "${AWS::Region}",
+                    "cfn_efs": "${EFSId}",
+                    "cfn_efs_shared_dir": "NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE",
+                    "cfn_fsx_fs_id": "${FSXId}",
+                    "cfn_fsx_options": "NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE",
+                    "cfn_scheduler": "slurm",
+                    "cfn_scheduler_slots": "NONE",
+                    "cfn_scaledown_idletime": "10",
+                    "cfn_encrypted_ephemeral": "false",
+                    "cfn_ephemeral_dir": "/scratch",
+                    "cfn_shared_dir": "/shared",
+                    "cfn_proxy": "NONE",
+                    "cfn_sqs_queue": "${SQS}",
+                    "cfn_master": "${MasterServerPrivateDns}",
+                    "cfn_node_type": "ComputeFleet",
+                    "cfn_cluster_user": "ec2_user",
+                    "enable_intel_hpc_platform": "false",
+                    "cfn_cluster_cw_logging_enabled": "true"
+                  },
+                  "run_list": "recipe[aws-parallelcluster::slurm_config]"
+                }
+            - path: /etc/chef/client.rb
+              permissions: '0644'
+              owner: root:root
+              content: |
+                cookbook_path ['/etc/chef/cookbooks']
+            - path: /tmp/extra.json
+              permissions: '0644'
+              owner: root:root
+              content: |
+                {}
+
+            --==BOUNDARY==
             Content-Type: text/x-shellscript; charset=us-ascii
             MIME-Version: 1.0
 
-            #!/bin/bash -x
+            #!/bin/bash -ex
+
+            trap 'error_exit 'Failed to run userdata. If --norollback was specified, check /var/log/cloud-init-output.log.'' ERR
 
             function error_exit
             {
@@ -167,7 +219,7 @@ Resources:
               mkdir -p ${!log_dir}
               echo "Reporting instance as unhealthy and dumping logs to ${!log_dir}/${!instance_id}.tar.gz"
               tar -czf ${!log_dir}/${!instance_id}.tar.gz /var/log
-              # aws --region ${AWS::Region} autoscaling set-instance-health --instance-id ${!instance_id} --hea lth-status Unhealthy
+              aws --region ${AWS::Region} autoscaling set-instance-health --instance-id ${!instance_id} --health-status Unhealthy
               cfn-signal --exit-code=1 --reason="$1" --stack="${AWS::StackName}" --resource=ASGqueue1c5xlarge --region=${AWS::Region}
               exit 1
             }
@@ -242,103 +294,21 @@ Resources:
               masterServerStatus=$(aws cloudformation describe-stack-resource --stack-name ${MainStackName} --logical-resource-id MasterServerWaitCondition --region ${AWS::Region} --query StackResourceDetail.ResourceStatus --output text 2>/dev/null)
             done
 
-            # Call CloudFormation
-            cfn-init -s ${AWS::StackName} -v -c default --role ${RootRole} -r LaunchTemplatequeue1c5xlarge --region ${AWS::Region} || error_exit 'Failed to run cfn-init. If --norollback was specified, check /var/log/cfn-init.log and /var/log/cloud-init-output.log.'
+            # Former cfn-init
+            mkdier -p /etc/chef/ohai/hints
+            touch /etc/chef/ohai/hints/ec2.json
+            jq --argfile f1 /tmp/dna.json --argfile f2 /tmp/extra.json -n '$f1 + $f2 | .cfncluster = $f1.cfncluster + $f2.cfncluster' > /etc/chef/dna.json || ( echo "jq not installed"; cp /tmp/dna.json /etc/chef/dna.json)
+            pushd /etc/chef; chef-client --local-mode --config /etc/chef/client.rb --log_level auto --force-formatter --no-color --chef-zero-port 8889 --json-attributes /etc/chef/dna.json --override-runlist aws-parallelcluster::_prep_env; popd
+            /opt/parallelcluster/scripts/fetch_and_run -preinstall
+            pushd /etc/chef; chef-client --local-mode --config /etc/chef/client.rb --log_level auto --force-formatter --no-color --chef-zero-port 8889 --json-attributes /etc/chef/dna.json; popd
+            /opt/parallelcluster/scripts/fetch_and_run -postinstall
+            pushd /etc/chef; chef-client --local-mode --config /etc/chef/client.rb --log_level auto --force-formatter --no-color --chef-zero-port 8889 --json-attributes /etc/chef/dna.json --override-runlist aws-parallelcluster::finalize; popd
+
+            # Signal completion
             cfn-signal --exit-code=0 --reason="ComputeServer setup complete" --stack=${AWS::StackName} --resource=ASGqueue1c5xlarge --region=${AWS::Region}
 
             # End of file
             --==BOUNDARY==
-    Metadata:
-      Comment: AWS ParallelCluster Compute server
-      AWS::CloudFormation::Init:
-        configSets:
-          default:
-            - deployConfigFiles
-            - chefPrepEnv
-            - shellRunPreInstall
-            - chefConfig
-            - shellRunPostInstall
-            - chefFinalize
-        deployConfigFiles:
-          files:
-            /tmp/dna.json:
-              mode: '000644'
-              owner: root
-              group: root
-              content:
-                cfncluster:
-                  stack_name: !Ref 'MainStackName'
-                  enable_efa: false
-                  cfn_raid_parameters: NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE
-                  cfn_preinstall: NONE
-                  cfn_preinstall_args:  NONE
-                  cfn_postinstall:  NONE
-                  cfn_postinstall_args:  NONE
-                  cfn_region: !Ref 'AWS::Region'
-                  cfn_efs: !Ref 'EFSId'
-                  cfn_efs_shared_dir: NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE
-                  cfn_fsx_fs_id: !Ref 'FSXId'
-                  cfn_fsx_options: NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE
-                  cfn_scheduler: slurm
-                  cfn_scheduler_slots: !Ref 'AWS::NoValue'
-                  cfn_scaledown_idletime: 10
-                  cfn_encrypted_ephemeral: false
-                  cfn_ephemeral_dir: /scratch
-                  cfn_shared_dir: /shared
-                  cfn_proxy: NONE
-                  cfn_sqs_queue: !Ref 'SQS'
-                  cfn_master: !Ref 'MasterServerPrivateDns'
-                  cfn_node_type: ComputeFleet
-                  cfn_cluster_user: ec2_user
-                  enable_intel_hpc_platform: false
-                  cfn_cluster_cw_logging_enabled: true
-                run_list: 'recipe[aws-parallelcluster::slurm_config]'
-            /etc/chef/client.rb:
-              mode: '000644'
-              owner: root
-              group: root
-              content: !Join
-                - ''
-                - - cookbook_path ['/etc/chef/cookbooks']
-            /tmp/extra.json:
-              mode: '000644'
-              owner: root
-              group: root
-              content: '{}'
-          commands:
-            mkdir:
-              command: mkdir -p /etc/chef/ohai/hints
-            touch:
-              command: touch /etc/chef/ohai/hints/ec2.json
-            jq:
-              command: >-
-                jq --argfile f1 /tmp/dna.json --argfile f2 /tmp/extra.json -n '$f1 + $f2 | .cfncluster = $f1.cfncluster + $f2.cfncluster' > /etc/chef/dna.json || ( echo "jq not installed"; cp /tmp/dna.json /etc/chef/dna.json
-                )
-        chefPrepEnv:
-          commands:
-            chef:
-              command: >-
-                chef-client --local-mode --config /etc/chef/client.rb --log_level auto --force-formatter --no-color --chef-zero-port 8889 --json-attributes /etc/chef/dna.json --override-runlist aws-parallelcluster::_prep_env
-              cwd: /etc/chef
-        shellRunPreInstall:
-          commands:
-            runpreinstall:
-              command: /opt/parallelcluster/scripts/fetch_and_run -preinstall
-        chefConfig:
-          commands:
-            chef:
-              command: chef-client --local-mode --config /etc/chef/client.rb --log_level auto --force-formatter --no-color --chef-zero-port 8889 --json-attributes /etc/chef/dna.json
-              cwd: /etc/chef
-        shellRunPostInstall:
-          commands:
-            runpostinstall:
-              command: /opt/parallelcluster/scripts/fetch_and_run -postinstall
-        chefFinalize:
-          commands:
-            chef:
-              command: >-
-                chef-client --local-mode --config /etc/chef/client.rb --log_level auto --force-formatter --no-color --chef-zero-port 8889 --json-attributes /etc/chef/dna.json --override-runlist aws-parallelcluster::finalize
-              cwd: /etc/chef
   ASGqueue1c52xlarge:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
@@ -468,10 +438,62 @@ Resources:
             fi
 
             --==BOUNDARY==
+            Content-Type: text/cloud-config; charset=us-ascii
+            MIME-Version: 1.0
+
+            write_files:
+            - path: /tmp/dna.json
+              permissions: '0644'
+              owner: root:root
+              content: |
+                {
+                  "cfncluster": {
+                    "stack_name": "${MainStackName}",
+                    "enable_efa": "false",
+                    "cfn_raid_parameters": "NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE",
+                    "cfn_preinstall": "NONE",
+                    "cfn_preinstall_args": "NONE",
+                    "cfn_postinstall": "NONE",
+                    "cfn_postinstall_args": "NONE",
+                    "cfn_region": "${AWS::Region}",
+                    "cfn_efs": "${EFSId}",
+                    "cfn_efs_shared_dir": "NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE",
+                    "cfn_fsx_fs_id": "${FSXId}",
+                    "cfn_fsx_options": "NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE",
+                    "cfn_scheduler": "slurm",
+                    "cfn_scheduler_slots": "NONE",
+                    "cfn_scaledown_idletime": "10",
+                    "cfn_encrypted_ephemeral": "false",
+                    "cfn_ephemeral_dir": "/scratch",
+                    "cfn_shared_dir": "/shared",
+                    "cfn_proxy": "NONE",
+                    "cfn_sqs_queue": "${SQS}",
+                    "cfn_master": "${MasterServerPrivateDns}",
+                    "cfn_node_type": "ComputeFleet",
+                    "cfn_cluster_user": "ec2_user",
+                    "enable_intel_hpc_platform": "false",
+                    "cfn_cluster_cw_logging_enabled": "true"
+                  },
+                  "run_list": "recipe[aws-parallelcluster::slurm_config]"
+                }
+            - path: /etc/chef/client.rb
+              permissions: '0644'
+              owner: root:root
+              content: |
+                cookbook_path ['/etc/chef/cookbooks']
+            - path: /tmp/extra.json
+              permissions: '0644'
+              owner: root:root
+              content: |
+                {}
+
+            --==BOUNDARY==
             Content-Type: text/x-shellscript; charset=us-ascii
             MIME-Version: 1.0
 
-            #!/bin/bash -x
+            #!/bin/bash -ex
+
+            trap 'error_exit 'Failed to run userdata. If --norollback was specified, check /var/log/cloud-init-output.log.'' ERR
 
             function error_exit
             {
@@ -556,103 +578,21 @@ Resources:
               masterServerStatus=$(aws cloudformation describe-stack-resource --stack-name ${MainStackName} --logical-resource-id MasterServerWaitCondition --region ${AWS::Region} --query StackResourceDetail.ResourceStatus --output text 2>/dev/null)
             done
 
-            # Call CloudFormation
-            cfn-init -s ${AWS::StackName} -v -c default --role ${RootRole} -r LaunchTemplatequeue1c52xlarge --region ${AWS::Region} || error_exit 'Failed to run cfn-init. If --norollback was specified, check /var/log/cfn-init.log and /var/log/cloud-init-output.log.'
+            # Former cfn-init
+            mkdier -p /etc/chef/ohai/hints
+            touch /etc/chef/ohai/hints/ec2.json
+            jq --argfile f1 /tmp/dna.json --argfile f2 /tmp/extra.json -n '$f1 + $f2 | .cfncluster = $f1.cfncluster + $f2.cfncluster' > /etc/chef/dna.json || ( echo "jq not installed"; cp /tmp/dna.json /etc/chef/dna.json)
+            pushd /etc/chef; chef-client --local-mode --config /etc/chef/client.rb --log_level auto --force-formatter --no-color --chef-zero-port 8889 --json-attributes /etc/chef/dna.json --override-runlist aws-parallelcluster::_prep_env; popd
+            /opt/parallelcluster/scripts/fetch_and_run -preinstall
+            pushd /etc/chef; chef-client --local-mode --config /etc/chef/client.rb --log_level auto --force-formatter --no-color --chef-zero-port 8889 --json-attributes /etc/chef/dna.json; popd
+            /opt/parallelcluster/scripts/fetch_and_run -postinstall
+            pushd /etc/chef; chef-client --local-mode --config /etc/chef/client.rb --log_level auto --force-formatter --no-color --chef-zero-port 8889 --json-attributes /etc/chef/dna.json --override-runlist aws-parallelcluster::finalize; popd
+
+            # Signal completion
             cfn-signal --exit-code=0 --reason="ComputeServer setup complete" --stack=${AWS::StackName} --resource=ASGqueue1c52xlarge --region=${AWS::Region}
 
             # End of file
             --==BOUNDARY==
-    Metadata:
-      Comment: AWS ParallelCluster Compute server
-      AWS::CloudFormation::Init:
-        configSets:
-          default:
-            - deployConfigFiles
-            - chefPrepEnv
-            - shellRunPreInstall
-            - chefConfig
-            - shellRunPostInstall
-            - chefFinalize
-        deployConfigFiles:
-          files:
-            /tmp/dna.json:
-              mode: '000644'
-              owner: root
-              group: root
-              content:
-                cfncluster:
-                  stack_name: !Ref 'MainStackName'
-                  enable_efa: false
-                  cfn_raid_parameters: NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE
-                  cfn_preinstall: NONE
-                  cfn_preinstall_args:  NONE
-                  cfn_postinstall:  NONE
-                  cfn_postinstall_args:  NONE
-                  cfn_region: !Ref 'AWS::Region'
-                  cfn_efs: !Ref 'EFSId'
-                  cfn_efs_shared_dir: NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE
-                  cfn_fsx_fs_id: !Ref 'FSXId'
-                  cfn_fsx_options: NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE
-                  cfn_scheduler: slurm
-                  cfn_scheduler_slots: !Ref 'AWS::NoValue'
-                  cfn_scaledown_idletime: 10
-                  cfn_encrypted_ephemeral: false
-                  cfn_ephemeral_dir: /scratch
-                  cfn_shared_dir: /shared
-                  cfn_proxy: NONE
-                  cfn_sqs_queue: !Ref 'SQS'
-                  cfn_master: !Ref 'MasterServerPrivateDns'
-                  cfn_node_type: ComputeFleet
-                  cfn_cluster_user: ec2_user
-                  enable_intel_hpc_platform: false
-                  cfn_cluster_cw_logging_enabled: true
-                run_list: 'recipe[aws-parallelcluster::slurm_config]'
-            /etc/chef/client.rb:
-              mode: '000644'
-              owner: root
-              group: root
-              content: !Join
-                - ''
-                - - cookbook_path ['/etc/chef/cookbooks']
-            /tmp/extra.json:
-              mode: '000644'
-              owner: root
-              group: root
-              content: '{}'
-          commands:
-            mkdir:
-              command: mkdir -p /etc/chef/ohai/hints
-            touch:
-              command: touch /etc/chef/ohai/hints/ec2.json
-            jq:
-              command: >-
-                jq --argfile f1 /tmp/dna.json --argfile f2 /tmp/extra.json -n '$f1 + $f2 | .cfncluster = $f1.cfncluster + $f2.cfncluster' > /etc/chef/dna.json || ( echo "jq not installed"; cp /tmp/dna.json /etc/chef/dna.json
-                )
-        chefPrepEnv:
-          commands:
-            chef:
-              command: >-
-                chef-client --local-mode --config /etc/chef/client.rb --log_level auto --force-formatter --no-color --chef-zero-port 8889 --json-attributes /etc/chef/dna.json --override-runlist aws-parallelcluster::_prep_env
-              cwd: /etc/chef
-        shellRunPreInstall:
-          commands:
-            runpreinstall:
-              command: /opt/parallelcluster/scripts/fetch_and_run -preinstall
-        chefConfig:
-          commands:
-            chef:
-              command: chef-client --local-mode --config /etc/chef/client.rb --log_level auto --force-formatter --no-color --chef-zero-port 8889 --json-attributes /etc/chef/dna.json
-              cwd: /etc/chef
-        shellRunPostInstall:
-          commands:
-            runpostinstall:
-              command: /opt/parallelcluster/scripts/fetch_and_run -postinstall
-        chefFinalize:
-          commands:
-            chef:
-              command: >-
-                chef-client --local-mode --config /etc/chef/client.rb --log_level auto --force-formatter --no-color --chef-zero-port 8889 --json-attributes /etc/chef/dna.json --override-runlist aws-parallelcluster::finalize
-              cwd: /etc/chef
   LaunchTemplatequeue2g38xlarge:
     Type: AWS::EC2::LaunchTemplate
     Properties:
@@ -754,10 +694,62 @@ Resources:
             fi
 
             --==BOUNDARY==
+            Content-Type: text/cloud-config; charset=us-ascii
+            MIME-Version: 1.0
+
+            write_files:
+            - path: /tmp/dna.json
+              permissions: '0644'
+              owner: root:root
+              content: |
+                {
+                  "cfncluster": {
+                    "stack_name": "${MainStackName}",
+                    "enable_efa": "false",
+                    "cfn_raid_parameters": "NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE",
+                    "cfn_preinstall": "NONE",
+                    "cfn_preinstall_args": "NONE",
+                    "cfn_postinstall": "NONE",
+                    "cfn_postinstall_args": "NONE",
+                    "cfn_region": "${AWS::Region}",
+                    "cfn_efs": "${EFSId}",
+                    "cfn_efs_shared_dir": "NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE",
+                    "cfn_fsx_fs_id": "${FSXId}",
+                    "cfn_fsx_options": "NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE",
+                    "cfn_scheduler": "slurm",
+                    "cfn_scheduler_slots": "NONE",
+                    "cfn_scaledown_idletime": "10",
+                    "cfn_encrypted_ephemeral": "false",
+                    "cfn_ephemeral_dir": "/scratch",
+                    "cfn_shared_dir": "/shared",
+                    "cfn_proxy": "NONE",
+                    "cfn_sqs_queue": "${SQS}",
+                    "cfn_master": "${MasterServerPrivateDns}",
+                    "cfn_node_type": "ComputeFleet",
+                    "cfn_cluster_user": "ec2_user",
+                    "enable_intel_hpc_platform": "false",
+                    "cfn_cluster_cw_logging_enabled": "true"
+                  },
+                  "run_list": "recipe[aws-parallelcluster::slurm_config]"
+                }
+            - path: /etc/chef/client.rb
+              permissions: '0644'
+              owner: root:root
+              content: |
+                cookbook_path ['/etc/chef/cookbooks']
+            - path: /tmp/extra.json
+              permissions: '0644'
+              owner: root:root
+              content: |
+                {}
+
+            --==BOUNDARY==
             Content-Type: text/x-shellscript; charset=us-ascii
             MIME-Version: 1.0
 
-            #!/bin/bash -x
+            #!/bin/bash -ex
+
+            trap 'error_exit 'Failed to run userdata. If --norollback was specified, check /var/log/cloud-init-output.log.'' ERR
 
             function error_exit
             {
@@ -842,103 +834,21 @@ Resources:
               masterServerStatus=$(aws cloudformation describe-stack-resource --stack-name ${MainStackName} --logical-resource-id MasterServerWaitCondition --region ${AWS::Region} --query StackResourceDetail.ResourceStatus --output text 2>/dev/null)
             done
 
-            # Call CloudFormation
-            cfn-init -s ${AWS::StackName} -v -c default --role ${RootRole} -r LaunchTemplatequeue2g38xlarge --region ${AWS::Region} || error_exit 'Failed to run cfn-init. If --norollback was specified, check /var/log/cfn-init.log and /var/log/cloud-init-output.log.'
+            # Former cfn-init
+            mkdier -p /etc/chef/ohai/hints
+            touch /etc/chef/ohai/hints/ec2.json
+            jq --argfile f1 /tmp/dna.json --argfile f2 /tmp/extra.json -n '$f1 + $f2 | .cfncluster = $f1.cfncluster + $f2.cfncluster' > /etc/chef/dna.json || ( echo "jq not installed"; cp /tmp/dna.json /etc/chef/dna.json)
+            pushd /etc/chef; chef-client --local-mode --config /etc/chef/client.rb --log_level auto --force-formatter --no-color --chef-zero-port 8889 --json-attributes /etc/chef/dna.json --override-runlist aws-parallelcluster::_prep_env; popd
+            /opt/parallelcluster/scripts/fetch_and_run -preinstall
+            pushd /etc/chef; chef-client --local-mode --config /etc/chef/client.rb --log_level auto --force-formatter --no-color --chef-zero-port 8889 --json-attributes /etc/chef/dna.json; popd
+            /opt/parallelcluster/scripts/fetch_and_run -postinstall
+            pushd /etc/chef; chef-client --local-mode --config /etc/chef/client.rb --log_level auto --force-formatter --no-color --chef-zero-port 8889 --json-attributes /etc/chef/dna.json --override-runlist aws-parallelcluster::finalize; popd
+
+            # Signal completion
             cfn-signal --exit-code=0 --reason="ComputeServer setup complete" --stack=${AWS::StackName} --resource=ASGqueue2g38xlarge --region=${AWS::Region}
 
             # End of file
             --==BOUNDARY==
-    Metadata:
-      Comment: AWS ParallelCluster Compute server
-      AWS::CloudFormation::Init:
-        configSets:
-          default:
-            - deployConfigFiles
-            - chefPrepEnv
-            - shellRunPreInstall
-            - chefConfig
-            - shellRunPostInstall
-            - chefFinalize
-        deployConfigFiles:
-          files:
-            /tmp/dna.json:
-              mode: '000644'
-              owner: root
-              group: root
-              content:
-                cfncluster:
-                  stack_name: !Ref 'MainStackName'
-                  enable_efa: false
-                  cfn_raid_parameters: NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE
-                  cfn_preinstall: NONE
-                  cfn_preinstall_args:  NONE
-                  cfn_postinstall:  NONE
-                  cfn_postinstall_args:  NONE
-                  cfn_region: !Ref 'AWS::Region'
-                  cfn_efs: !Ref 'EFSId'
-                  cfn_efs_shared_dir: NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE
-                  cfn_fsx_fs_id: !Ref 'FSXId'
-                  cfn_fsx_options: NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE,NONE
-                  cfn_scheduler: slurm
-                  cfn_scheduler_slots: !Ref 'AWS::NoValue'
-                  cfn_scaledown_idletime: 10
-                  cfn_encrypted_ephemeral: false
-                  cfn_ephemeral_dir: /scratch
-                  cfn_shared_dir: /shared
-                  cfn_proxy: NONE
-                  cfn_sqs_queue: !Ref 'SQS'
-                  cfn_master: !Ref 'MasterServerPrivateDns'
-                  cfn_node_type: ComputeFleet
-                  cfn_cluster_user: ec2_user
-                  enable_intel_hpc_platform: false
-                  cfn_cluster_cw_logging_enabled: true
-                run_list: 'recipe[aws-parallelcluster::slurm_config]'
-            /etc/chef/client.rb:
-              mode: '000644'
-              owner: root
-              group: root
-              content: !Join
-                - ''
-                - - cookbook_path ['/etc/chef/cookbooks']
-            /tmp/extra.json:
-              mode: '000644'
-              owner: root
-              group: root
-              content: '{}'
-          commands:
-            mkdir:
-              command: mkdir -p /etc/chef/ohai/hints
-            touch:
-              command: touch /etc/chef/ohai/hints/ec2.json
-            jq:
-              command: >-
-                jq --argfile f1 /tmp/dna.json --argfile f2 /tmp/extra.json -n '$f1 + $f2 | .cfncluster = $f1.cfncluster + $f2.cfncluster' > /etc/chef/dna.json || ( echo "jq not installed"; cp /tmp/dna.json /etc/chef/dna.json
-                )
-        chefPrepEnv:
-          commands:
-            chef:
-              command: >-
-                chef-client --local-mode --config /etc/chef/client.rb --log_level auto --force-formatter --no-color --chef-zero-port 8889 --json-attributes /etc/chef/dna.json --override-runlist aws-parallelcluster::_prep_env
-              cwd: /etc/chef
-        shellRunPreInstall:
-          commands:
-            runpreinstall:
-              command: /opt/parallelcluster/scripts/fetch_and_run -preinstall
-        chefConfig:
-          commands:
-            chef:
-              command: chef-client --local-mode --config /etc/chef/client.rb --log_level auto --force-formatter --no-color --chef-zero-port 8889 --json-attributes /etc/chef/dna.json
-              cwd: /etc/chef
-        shellRunPostInstall:
-          commands:
-            runpostinstall:
-              command: /opt/parallelcluster/scripts/fetch_and_run -postinstall
-        chefFinalize:
-          commands:
-            chef:
-              command: >-
-                chef-client --local-mode --config /etc/chef/client.rb --log_level auto --force-formatter --no-color --chef-zero-port 8889 --json-attributes /etc/chef/dna.json --override-runlist aws-parallelcluster::finalize
-              cwd: /etc/chef
   PlacementGroupqueue2:
     Type: AWS::EC2::PlacementGroup
     Properties:
