@@ -939,5 +939,12 @@
         }
       }
     }
+  },
+  "Outputs": {
+    "ASGName": {
+      "Value": {
+        "Ref": "ComputeFleet"
+      }
+    }
   }
 }
