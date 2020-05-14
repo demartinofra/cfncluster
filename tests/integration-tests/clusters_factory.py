@@ -114,7 +114,7 @@ class Cluster:
     @property
     def asg(self):
         """Return the asg name for the ComputeFleet."""
-        return self.cfn_resources["ComputeFleet"]
+        return self.cfn_outputs["ASGName"]
 
     @property
     def cfn_outputs(self):
