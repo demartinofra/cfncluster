@@ -437,7 +437,18 @@ Resources:
               done
 
               # Call CloudFormation
-              cfn-init -s ${AWS::StackName} --role=${IamRoleName} -v -c default -r ComputeServerLaunchTemplate --region ${AWS::Region} || error_exit 'Failed to run cfn-init. If --norollback was specified, check /var/log/cfn-init.log and /var/log/cloud-init-output.log.'
+              # cfn-init -s ${AWS::StackName} --role=${IamRoleName} -v -c default -r ComputeServerLaunchTemplate --region ${AWS::Region} || error_exit 'Failed to run cfn-init. If --norollback was specified, check /var/log/cfn-init.log and /var/log/cloud-init-output.log.'
+
+              mkdir -p /etc/chef/ohai/hints
+              touch /etc/chef/ohai/hints/ec2.json
+              jq --argfile f1 /tmp/dna.json --argfile f2 /tmp/extra.json -n '$f1 + $f2 | .cfncluster = $f1.cfncluster + $f2.cfncluster' > /etc/chef/dna.json || ( echo "jq not installed"; cp /tmp/dna.json /etc/chef/dna.json)
+              pushd /etc/chef; chef-client --local-mode --config /etc/chef/client.rb --log_level auto --force-formatter --no-color --chef-zero-port 8889 --json-attributes /etc/chef/dna.json --override-runlist aws-parallelcluster::_prep_env; popd
+              /opt/parallelcluster/scripts/fetch_and_run -preinstall
+              pushd /etc/chef; chef-client --local-mode --config /etc/chef/client.rb --log_level auto --force-formatter --no-color --chef-zero-port 8889 --json-attributes /etc/chef/dna.json; popd
+              /opt/parallelcluster/scripts/fetch_and_run -postinstall
+              pushd /etc/chef; chef-client --local-mode --config /etc/chef/client.rb --log_level auto --force-formatter --no-color --chef-zero-port 8889 --json-attributes /etc/chef/dna.json --override-runlist aws-parallelcluster::finalize; popd
+              [ ! -f /opt/parallelcluster/.bootstrapped ] && echo ${!parallelcluster_version} | tee /opt/parallelcluster/.bootstrapped
+
               cfn-signal --exit-code=0 --reason="ComputeServer setup complete" --stack=${AWS::StackName} --role=${IamRoleName} --resource=ComputeFleet --region=${AWS::Region}
               # End of file
               --==BOUNDARY==
@@ -453,60 +464,6 @@ Resources:
                 - DisableComputeHyperthreading
                 - !Ref 'ComputeCoreCount'
                 - ''
-    Metadata:
-      Comment: AWS ParallelCluster Compute server
-      AWS::CloudFormation::Init:
-        configSets:
-          default:
-            - deployConfigFiles
-            - chefPrepEnv
-            - shellRunPreInstall
-            - chefConfig
-            - shellRunPostInstall
-            - chefFinalize
-        deployConfigFiles:
-          commands:
-            mkdir:
-              command: mkdir -p /etc/chef/ohai/hints
-            touch:
-              command: touch /etc/chef/ohai/hints/ec2.json
-            jq:
-              command: jq --argfile f1 /tmp/dna.json --argfile f2 /tmp/extra.json
-                -n '$f1 + $f2 | .cfncluster = $f1.cfncluster + $f2.cfncluster' > /etc/chef/dna.json
-                || ( echo "jq not installed"; cp /tmp/dna.json /etc/chef/dna.json
-                )
-        chefPrepEnv:
-          commands:
-            chef:
-              command: chef-client --local-mode --config /etc/chef/client.rb --log_level
-                auto --force-formatter --no-color --chef-zero-port 8889 --json-attributes
-                /etc/chef/dna.json --override-runlist aws-parallelcluster::_prep_env
-              cwd: /etc/chef
-        shellRunPreInstall:
-          commands:
-            runpreinstall:
-              command: /opt/parallelcluster/scripts/fetch_and_run -preinstall
-        chefConfig:
-          commands:
-            chef:
-              command: chef-client --local-mode --config /etc/chef/client.rb --log_level
-                auto --force-formatter --no-color --chef-zero-port 8889 --json-attributes
-                /etc/chef/dna.json
-              cwd: /etc/chef
-        shellRunPostInstall:
-          commands:
-            runpostinstall:
-              command: /opt/parallelcluster/scripts/fetch_and_run -postinstall
-        chefFinalize:
-          commands:
-            chef:
-              command: chef-client --local-mode --config /etc/chef/client.rb --log_level
-                auto --force-formatter --no-color --chef-zero-port 8889 --json-attributes
-                /etc/chef/dna.json --override-runlist aws-parallelcluster::finalize
-              cwd: /etc/chef
-            bootstrap:
-              command: '[ ! -f /opt/parallelcluster/.bootstrapped ] && echo ${parallelcluster_version}
-                | tee /opt/parallelcluster/.bootstrapped || exit 0'
 Outputs:
   ASGName:
     Value: !Ref 'ComputeFleet'
