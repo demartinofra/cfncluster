@@ -3125,6 +3125,15 @@
       },
       "Condition": "CreateAWSBatchStack"
     },
+    "ASGName": {
+      "Value": {
+        "Fn::GetAtt": [
+          "ComputeFleetSubstack",
+          "Outputs.ASGName"
+        ]
+      },
+      "Condition": "CreateComputeFleet"
+    },
     "CLITemplate": {
       "Value": {
         "Ref": "CLITemplate"
