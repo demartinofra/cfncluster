@@ -4,12 +4,26 @@ from glob import glob
 
 import argparse
 
+from cfn_flip import dump_yaml, load_yaml
+
 
 def _parse_args():
-    parser = argparse.ArgumentParser(description="Formats a json document.")
+    parser = argparse.ArgumentParser(description="Formats a CloudFormation document.")
     parser.add_argument("-c", "--check", help="Only checks if file is formatted", action="store_true")
-    parser.add_argument("files", help="A space separated list of json files to format", nargs="+")
+    parser.add_argument("--format", choices=["json", "yaml"], help="The format of the template", required=True)
+    parser.add_argument("files", help="A space separated list of template files to format", nargs="+")
     return parser.parse_args()
+
+
+def _format_yaml(filename):
+    with open(filename, "r") as f:
+        try:
+            unformatted_yaml = load_yaml(f)
+        except Exception as e:
+            print("ERROR: Invalid yaml document: {error}".format(error=e))
+            exit(1)
+
+    return dump_yaml(unformatted_yaml, clean_up=True)
 
 
 def _format_json(filename):
@@ -23,25 +37,32 @@ def _format_json(filename):
     return json.dumps(unformatted_json, indent=2, separators=(",", ": ")) + "\n"
 
 
-def format_files(filenames):
-    """
-    Format JSON docs provided as input.
+FORMAT_TO_PARSING_FUNC = {
+    "json": _format_json,
+    "yaml": _format_yaml,
+}
 
-    :param filenames: list of JSON docs to format.
+
+def format_files(filenames, format):
+    """
+    Format CFN docs provided as input.
+
+    :param filenames: list of CFN docs to format.
+    :param format: json or yaml
     """
     for unexpanded_file in filenames:
         for file in glob(unexpanded_file):
             print("Formatting file: {filename}".format(filename=file))
-            formatted_json = _format_json(file)
+            formatted_doc = FORMAT_TO_PARSING_FUNC[format](file)
             with open(file, "w") as f:
-                f.write(formatted_json)
+                f.write(formatted_doc)
 
 
-def check_formatting(filenames):
+def check_formatting(filenames, format):
     """
-    Check that provided JSON docs are correctly formatted.
+    Check that provided CFN docs are correctly formatted.
 
-    :param filenames: list of JSON docs to check.
+    :param filenames: list of CFN docs to check.
     :return True if formatting is correct, False otherwise.
     """
     has_failures = False
@@ -50,8 +71,8 @@ def check_formatting(filenames):
             print("Checking file: {filename}".format(filename=file))
             with open(file, "r") as f:
                 data = f.read()
-            formatted_json = _format_json(file)
-            if formatted_json != data:
+            formatted_doc = FORMAT_TO_PARSING_FUNC[format](file)
+            if formatted_doc != data:
                 has_failures = True
                 print("FAILED: fix formatting for file {filename}".format(filename=file))
             else:
@@ -62,7 +83,7 @@ def check_formatting(filenames):
 
 args = _parse_args()
 if args.check:
-    has_failures = check_formatting(args.files)
+    has_failures = check_formatting(args.files, args.format)
     exit(not has_failures)
 else:
-    format_files(args.files)
+    format_files(args.files, args.format)
