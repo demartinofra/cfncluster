@@ -703,6 +703,14 @@
         }
       ]
     },
+    "CreateHITComputeFleet": {
+      "Fn::Equals": [
+        {
+          "Ref": "Scheduler"
+        },
+        "slurm"
+      ]
+    },
     "CreateAWSBatchStack": {
       "Fn::Equals": [
         {
@@ -751,6 +759,16 @@
           ]
         },
         "master"
+      ]
+    },
+    "CreateCleanupResourcesFunction": {
+      "Fn::Or": [
+        {
+          "Condition": "HasResourcesS3Bucket"
+        },
+        {
+          "Condition": "CreateHITComputeFleet"
+        }
       ]
     }
   },
@@ -1801,7 +1819,7 @@
     "AWSBatchStack": {
       "Type": "AWS::CloudFormation::Stack",
       "DependsOn": [
-        "CleanupResourcesCustomResource"
+        "CleanupResourcesS3BucketCustomResource"
       ],
       "Properties": {
         "Parameters": {
@@ -2097,6 +2115,22 @@
                     }
                   ],
                   "Sid": "S3BucketPolicy"
+                },
+                {
+                  "Sid": "FleetTerminatePolicy",
+                  "Effect": "Allow",
+                  "Action": [
+                    "ec2:TerminateInstances",
+                    "ec2:DescribeInstances"
+                  ],
+                  "Resource": "*",
+                  "Condition": {
+                    "ForAllValues:StringEquals": {
+                      "ec2:ResourceTag/Application": {
+                        "Ref": "AWS::StackName"
+                      }
+                    }
+                  }
                 }
               ],
               "Version": "2012-10-17"
@@ -2105,14 +2139,15 @@
           }
         ]
       },
-      "Condition": "HasResourcesS3Bucket"
+      "Condition": "CreateCleanupResourcesFunction"
     },
-    "CleanupResourcesCustomResource": {
+    "CleanupResourcesS3BucketCustomResource": {
       "Type": "AWS::CloudFormation::CustomResource",
       "Properties": {
         "ResourcesS3Bucket": {
           "Ref": "ResourcesS3Bucket"
         },
+        "Action": "DELETE_S3_BUCKET",
         "ServiceToken": {
           "Fn::GetAtt": [
             "CleanupResourcesFunction",
@@ -2124,6 +2159,25 @@
         "CleanupResourcesFunctionLogGroup"
       ],
       "Condition": "HasResourcesS3Bucket"
+    },
+    "TerminateComputeFleetCustomResource": {
+      "Type": "AWS::CloudFormation::CustomResource",
+      "Properties": {
+        "StackName": {
+          "Ref": "AWS::StackName"
+        },
+        "Action": "TERMINATE_EC2_INSTANCES",
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "CleanupResourcesFunction",
+            "Arn"
+          ]
+        }
+      },
+      "DependsOn": [
+        "CleanupResourcesFunctionLogGroup"
+      ],
+      "Condition": "CreateHITComputeFleet"
     },
     "CleanupResourcesFunction": {
       "Type": "AWS::Lambda::Function",
@@ -2142,10 +2196,10 @@
             "Arn"
           ]
         },
-        "Runtime": "python3.6",
-        "Timeout": 60
+        "Runtime": "python3.8",
+        "Timeout": 900
       },
-      "Condition": "HasResourcesS3Bucket"
+      "Condition": "CreateCleanupResourcesFunction"
     },
     "CleanupResourcesFunctionLogGroup": {
       "Type": "AWS::Logs::LogGroup",
@@ -2155,7 +2209,7 @@
         },
         "RetentionInDays": 14
       },
-      "Condition": "HasResourcesS3Bucket"
+      "Condition": "CreateCleanupResourcesFunction"
     },
     "RAIDSubstack": {
       "Type": "AWS::CloudFormation::Stack",
