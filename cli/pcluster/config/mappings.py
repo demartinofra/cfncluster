@@ -576,6 +576,10 @@ CLUSTER = {
                 # TODO add regex
                 "validators": [url_validator],
             }),
+            ("hit_template_url", {
+                # TODO add regex
+                "validators": [url_validator],
+            }),
             ("shared_dir", {
                 "type": SharedDirParam,
                 "allowed_values": ALLOWED_VALUES["file_path"],

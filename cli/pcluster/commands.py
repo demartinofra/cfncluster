@@ -20,6 +20,7 @@ import datetime
 import json
 import logging
 import os
+import re
 import shlex
 import subprocess as sub
 import sys
@@ -35,6 +36,7 @@ from botocore.exceptions import ClientError
 from tabulate import tabulate
 
 import pcluster.utils as utils
+from jinja2 import BaseLoader, Environment
 from pcluster.config.pcluster_config import PclusterConfig
 from pcluster.constants import PCLUSTER_STACK_PREFIX
 
@@ -67,6 +69,52 @@ def _create_bucket_with_resources(stack_name, region, resources_dirs):
         raise
 
     return s3_bucket_name
+
+
+def _upload_hit_resources(bucket_name, pcluster_config):
+    hit_template_url = pcluster_config.get_section("cluster").get_param_value(
+        "hit_template_url"
+    ) or "s3://{region}-aws-parallelcluster/templates/aws-parallelcluster-{version}.cfn.json".format(
+        region=pcluster_config.region, version=utils.get_installed_version()
+    )
+    match = re.match(r"s3://(.*?)/(.*)", hit_template_url)
+    bucket, key = match.group(1), match.group(2)
+    file_contents = boto3.resource("s3").Object(bucket, key).get()["Body"].read().decode("utf-8")
+
+    hit_config = {
+        "queues_config": {
+            "queue1": {
+                "instances": [
+                    {"type": "c5.xlarge", "static_size": 1, "dynamic_size": 2, "spot_price": 1.5},
+                    {"type": "c5.2xlarge", "static_size": 1, "dynamic_size": 0},
+                ],
+                "placement_group": "AUTO",
+                "enable_efa": False,
+                "disable_hyperthreading": False,
+                "compute_type": "spot",
+            },
+            "queue2": {
+                "instances": [{"type": "g3.8xlarge", "static_size": 0, "dynamic_size": 2}],
+                "placement_group": None,
+                "enable_efa": True,
+                "disable_hyperthreading": True,
+                "compute_type": "ondemand",
+            },
+        },
+        "scaling_config": {"scaledown_idletime": 10},
+    }
+
+    template = Environment(loader=BaseLoader).from_string(file_contents)
+    output_from_parsed_template = template.render(hit_config=hit_config)
+    s3_client = boto3.client("s3")
+    s3_client.put_object(
+        Bucket=bucket_name,
+        Body=output_from_parsed_template,
+        Key="templates/compute-fleet-hit-substack.rendered.cfn.yaml",
+    )
+    s3_client.put_object(
+        Bucket=bucket_name, Body=json.dumps(hit_config), Key="configs/hit-config.json",
+    )
 
 
 def version():
@@ -108,6 +156,10 @@ def create(args):  # noqa: C901 FIXME!!!
                 stack_name, pcluster_config.region, resources_dirs=resources_dirs
             )
             cfn_params["ResourcesS3Bucket"] = bucket_name
+
+        # TODO: to refactor
+        if cluster_section.get_param_value("scheduler") == "slurm":
+            _upload_hit_resources(bucket_name, pcluster_config)
 
         LOGGER.info("Creating stack named: %s", stack_name)
         LOGGER.debug(cfn_params)

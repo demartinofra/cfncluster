@@ -100,6 +100,8 @@ Parameters:
     Type: String
   BerkshelfVersion:
     Type: String
+  ResourcesS3Bucket:
+    Type: String
 Conditions:
   DisableMasterHyperthreading: !Not
     - !Equals
@@ -181,14 +183,6 @@ Resources:
       LaunchTemplate:
         LaunchTemplateId: !Ref 'MasterServerLaunchTemplate'
         Version: !GetAtt 'MasterServerLaunchTemplate.LatestVersionNumber'
-  MasterServerWaitCondition:
-    Type: AWS::CloudFormation::WaitCondition
-    DependsOn:
-      - MasterServer
-    CreationPolicy:
-      ResourceSignal:
-        Count: 1
-        Timeout: PT30M
   MasterServerLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
@@ -332,7 +326,7 @@ Resources:
 
               function error_exit
               {
-                cfn-signal --exit-code=1 --reason="$1" --stack=${AWS::StackName} --role=${IamRoleName} --resource=MasterServerWaitCondition --region=${AWS::Region}
+                cfn-signal --exit-code=1 --reason="$1" --stack=${MainStackName} --role=${IamRoleName} --resource=MasterServerWaitCondition --region=${AWS::Region}
                 exit 1
               }
               function vendor_cookbook
@@ -399,7 +393,7 @@ Resources:
               cd /tmp
               # Call CloudFormation
               cfn-init -s ${AWS::StackName} --role=${IamRoleName} -v -c default -r MasterServerLaunchTemplate --region ${AWS::Region} || error_exit 'Failed to run cfn-init. If --norollback was specified, check /var/log/cfn-init.log and /var/log/cloud-init-output.log.'
-              cfn-signal --exit-code=0 --reason="MasterServer setup complete" --stack=${AWS::StackName} --role=${IamRoleName} --resource=MasterServerWaitCondition --region=${AWS::Region}
+              cfn-signal --exit-code=0 --reason="MasterServer setup complete" --stack=${MainStackName} --role=${IamRoleName} --resource=MasterServerWaitCondition --region=${AWS::Region}
               # End of file
               --==BOUNDARY==
             - YumProxy: !If
@@ -463,6 +457,8 @@ Resources:
                   dcv_port: !Ref 'DCVPort'
                   enable_intel_hpc_platform: !Ref 'IntelHPCPlatform'
                   cfn_cluster_cw_logging_enabled: !Ref 'CWLoggingEnabled'
+                  slurm:
+                    queue_config_s3_uri: !Sub 's3://${ResourcesS3Bucket}/configs/hit-config.json'
                 run_list: !Sub 'recipe[aws-parallelcluster::${Scheduler}_config]'
             /etc/chef/client.rb:
               mode: '000644'
@@ -482,8 +478,7 @@ Resources:
             jq:
               command: jq --argfile f1 /tmp/dna.json --argfile f2 /tmp/extra.json
                 -n '$f1 + $f2 | .cfncluster = $f1.cfncluster + $f2.cfncluster' > /etc/chef/dna.json
-                || ( echo "jq not installed"; cp /tmp/dna.json /etc/chef/dna.json
-                )
+                || ( echo "jq not installed"; cp /tmp/dna.json /etc/chef/dna.json )
         chefPrepEnv:
           commands:
             chef:
@@ -499,8 +494,7 @@ Resources:
           commands:
             chef:
               command: chef-client --local-mode --config /etc/chef/client.rb --log_level
-                auto --force-formatter --no-color --chef-zero-port 8889 --json-attributes
-                /etc/chef/dna.json
+                auto --force-formatter --no-color --chef-zero-port 8889 --json-attributes /etc/chef/dna.json
               cwd: /etc/chef
         shellRunPostInstall:
           commands:

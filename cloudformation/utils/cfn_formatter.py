@@ -1,3 +1,5 @@
+import difflib
+
 import json
 from collections import OrderedDict
 from glob import glob
@@ -75,15 +77,18 @@ def check_formatting(filenames, format):
             if formatted_doc != data:
                 has_failures = True
                 print("FAILED: fix formatting for file {filename}".format(filename=file))
+                for line in difflib.unified_diff(formatted_doc.splitlines(), data.splitlines()):
+                    print(line)
             else:
                 print("SUCCEEDED: {filename} looks good".format(filename=file))
 
     return not has_failures
 
 
-args = _parse_args()
-if args.check:
-    has_failures = check_formatting(args.files, args.format)
-    exit(not has_failures)
-else:
-    format_files(args.files, args.format)
+if __name__ == "__main__":
+    args = _parse_args()
+    if args.check:
+        is_successful = check_formatting(args.files, args.format)
+        exit(not is_successful)
+    else:
+        format_files(args.files, args.format)
