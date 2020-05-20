@@ -926,7 +926,7 @@ def create_ami(args):
 
 def _get_default_template_url(region):
     return (
-        "https://s3.{REGION}.amazonaws.com{SUFFIX}/{REGION}-aws-parallelcluster/templates/"
+        "https://{REGION}-aws-parallelcluster.s3.{REGION}.amazonaws.com{SUFFIX}/templates/"
         "aws-parallelcluster-{VERSION}.cfn.json".format(
             REGION=region, SUFFIX=".cn" if region.startswith("cn") else "", VERSION=utils.get_installed_version()
         )
