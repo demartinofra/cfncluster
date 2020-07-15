@@ -3508,6 +3508,9 @@
               true,
               false
             ]
+          },
+          "VPCId": {
+            "Ref": "VPCId"
           }
         },
         "TemplateURL": {

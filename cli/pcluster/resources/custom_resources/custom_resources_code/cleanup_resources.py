@@ -21,6 +21,31 @@ logger = logging.getLogger(__name__)
 boto3_config = Config(retries={"max_attempts": 60})
 
 
+def _delete_dns_records(event):
+    """Delete all DNS entries from the private Route53 hosted zone"""
+    hosted_zone = event["ResourceProperties"]["Route53HostedZone"]
+    route53 = boto3.client('route53', config=boto3_config)
+
+    batch_size = 500
+    record_sets = route53.list_resource_record_sets(HostedZoneId=hosted_zone, MaxItems=str(batch_size)
+    while record_sets['ResourceRecordSets']:
+
+
+    try:
+        if hosted_zone:
+            logger.info("Deleting DNS records from %s", hosted_zone)
+            bucket = boto3.resource("s3", config=boto3_config).Bucket(bucket_name)
+            bucket.objects.all().delete()
+            bucket.delete()
+            logger.info("S3 bucket %s deletion: COMPLETED" % bucket_name)
+    except boto3.client("s3").exceptions.NoSuchBucket as ex:
+        logger.warning("S3 bucket %s not found. Bucket was probably manually deleted." % bucket_name)
+        logger.warning(ex, exc_info=True)
+    except Exception as e:
+        logger.error("Failed when deleting bucket %s with error %s", bucket_name, e)
+        raise
+
+
 def _delete_s3_bucket(event):
     """
     Empty and delete the bucket passed as argument.
@@ -100,6 +125,7 @@ def no_op(_, __):
 ACTION_HANDLERS = {
     "DELETE_S3_BUCKET": _delete_s3_bucket,
     "TERMINATE_EC2_INSTANCES": _terminate_cluster_nodes,
+    "DELETE_DNS_RECORDS": _delete_dns_records,
 }
 
 
