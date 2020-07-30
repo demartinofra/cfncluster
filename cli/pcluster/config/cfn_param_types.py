@@ -13,6 +13,7 @@ import json
 from collections import OrderedDict
 
 import yaml
+
 from pcluster.config.iam_policy_rules import AWSBatchFullAccessInclusionRule, CloudWatchAgentServerPolicyInclusionRule
 from pcluster.config.param_types import (
     LOGGER,
@@ -24,8 +25,15 @@ from pcluster.config.param_types import (
     get_file_section_name,
 )
 from pcluster.config.resource_map import ResourceMap
-from pcluster.constants import PCLUSTER_ISSUES_LINK
-from pcluster.utils import get_avail_zone, get_cfn_param, get_efs_mount_target_id, get_instance_vcpus
+from pcluster.constants import DEFAULT_ARCHITECTURE, PCLUSTER_ISSUES_LINK
+from pcluster.utils import (
+    error,
+    get_avail_zone,
+    get_cfn_param,
+    get_efs_mount_target_id,
+    get_instance_vcpus,
+    get_supported_architectures_for_instance_type,
+)
 
 
 # ---------------------- Params ---------------------- #
@@ -196,7 +204,7 @@ class BoolCfnParam(CfnParam):
 
     def get_string_value(self):
         """Convert internal representation into string."""
-        return "true" if self.value else "false"
+        return "NONE" if self.value is None else str(bool(self.value)).lower()
 
     def get_cfn_value(self):
         """
@@ -205,10 +213,6 @@ class BoolCfnParam(CfnParam):
         Used when the parameter must go into a comma separated CFN parameter.
         """
         return self.get_string_value()
-
-    def get_default_value(self):
-        """Get default value from the Param definition if there, False otherwise."""
-        return self.definition.get("default", False)
 
 
 class IntCfnParam(CfnParam):
@@ -1097,3 +1101,55 @@ class ClusterCfnSection(CfnSection):
 
         super(ClusterCfnSection, self).to_storage(storage_params)
         return storage_params
+
+
+class ArchitectureCfnParam(CfnParam):
+    """
+    Class to manage the architecture configuration parameter.
+
+    We need this class in order to compute the derived value given the cluster section's configuration.
+    """
+
+    def from_file(self, config_parser):
+        """
+        Ensure this parameter is not present in the config file.
+
+        This parameter is meant to be derived from other parameters, and should not be specified in the config.
+        :param config_parser: the configparser object from which get the parameter
+        """
+        section_name = get_file_section_name(self.section_key, self.section_label)
+        if config_parser.has_option(section_name, self.key):
+            self.pcluster_config.error(
+                "The parameter '{0}' is a derived parameter and should not be specified in the config".format(self.key)
+            )
+
+        return self
+
+    @staticmethod
+    def get_master_instance_type_architecture(cluster_section):
+        """Compute cluster's 'Architecture' CFN parameter based on its master server instance type."""
+        if not cluster_section:
+            return DEFAULT_ARCHITECTURE
+
+        master_inst_type = cluster_section.get_param_value("master_instance_type")
+        if not master_inst_type:
+            error("Cannot infer architecture without master instance type")
+        master_inst_supported_architectures = get_supported_architectures_for_instance_type(master_inst_type)
+
+        if not master_inst_supported_architectures:
+            error("Unable to get architectures supported by instance type {0}.".format(master_inst_type))
+        # If the instance type supports multiple architectures, choose the first one.
+        # TODO: this is currently not an issue because none of the instance types we support more than one of the
+        #       architectures we support. If this were ever to change (e.g., we start supporting i386) then we would
+        #       probably need to choose based on the subset of the architecutres supported by both the master and
+        #       compute instance types.
+        return master_inst_supported_architectures[0]
+
+    def get_default_value(self):
+        """
+        Get default value from the Param definition.
+
+        The default value is only allowed to be a function, which is passed a cluster section object.
+        """
+        section = self.pcluster_config.get_section(self.section_key, self.section_label)
+        return self.get_master_instance_type_architecture(section)
