@@ -106,9 +106,13 @@ Parameters:
       used with HIT
 Conditions:
   DisableMasterHyperthreading: !Not
-    - !Equals
-      - !Ref 'MasterCoreCount'
-      - '-1'
+    - !Or
+      - !Equals
+        - !Ref 'MasterCoreCount'
+        - '-1'
+      - !Equals
+        - !Ref 'MasterCoreCount'
+        - 'NONE'
   IsMasterInstanceEbsOpt: !Not
     - !Or
       - !Or
