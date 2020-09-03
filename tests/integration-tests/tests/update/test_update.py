@@ -28,7 +28,6 @@ from tests.common.scaling_common import (
 from tests.common.schedulers_common import get_scheduler_commands
 
 
-# FIXME @pytest.mark.dimensions("eu-west-1", "c5.xlarge", "centos7", "slurm")
 @pytest.mark.dimensions("eu-west-1", "c5.xlarge", "centos7", "sge")
 @pytest.mark.usefixtures("os", "instance")
 def test_update_sit(region, scheduler, pcluster_config_reader, clusters_factory, test_datadir, s3_bucket_factory):
@@ -130,6 +129,109 @@ def test_update_sit(region, scheduler, pcluster_config_reader, clusters_factory,
     )
 
 
+@pytest.mark.dimensions("eu-west-1", "c5.xlarge", "centos7", "slurm")
+@pytest.mark.usefixtures("os", "instance")
+def test_update_hit(region, scheduler, pcluster_config_reader, clusters_factory, test_datadir, s3_bucket_factory):
+    # Create S3 bucket for pre/post install scripts
+    bucket_name = s3_bucket_factory()
+    bucket = boto3.resource("s3", region_name=region).Bucket(bucket_name)
+    bucket.upload_file(str(test_datadir / "preinstall.sh"), "scripts/preinstall.sh")
+    bucket.upload_file(str(test_datadir / "postinstall.sh"), "scripts/postinstall.sh")
+
+    # Create cluster with initial configuration
+    init_config_file = pcluster_config_reader()
+    cluster = clusters_factory(init_config_file)
+
+    # Command executors
+    command_executor = RemoteCommandExecutor(cluster)
+    scheduler_commands = get_scheduler_commands(scheduler, command_executor)
+
+    # Create shared dir for script results
+    command_executor.run_remote_command("mkdir -p /shared/script_results")
+
+    # Update cluster with new configuration
+    updated_config_file = pcluster_config_reader(config_file="pcluster.config.update.ini", bucket=bucket_name)
+    cluster.config_file = str(updated_config_file)
+    cluster.stop()
+    cluster.update()
+    cluster.start()
+
+    # # Get initial, new and old compute instances references, to be able to execute specific tests in different group of
+    # # instances
+    # # Get initial compute nodes
+    # initial_compute_nodes = scheduler_commands.get_compute_nodes()
+    #
+    # # Get new compute nodes
+    # new_compute_nodes = _add_compute_nodes(scheduler_commands)
+    #
+    # # Old compute node instance refs
+    # old_compute_node = initial_compute_nodes[0]
+    # old_compute_instance = _get_instance(region, cluster.cfn_name, old_compute_node)
+    #
+    # # New compute node instance refs
+    # new_compute_node = new_compute_nodes[0]
+    # new_compute_instance = _get_instance(region, cluster.cfn_name, new_compute_node)
+    #
+    # # Read updated configuration
+    # updated_config = configparser.ConfigParser()
+    # updated_config.read(updated_config_file)
+    #
+    # # Check new ASG settings
+    # _check_initial_queue(region, cluster.cfn_name, updated_config.getint("cluster default", "initial_queue_size"))
+    # _check_max_queue(region, cluster.cfn_name, updated_config.getint("cluster default", "max_queue_size"))
+    #
+    # # Check new S3 resources
+    # _check_s3_read_resource(region, cluster, updated_config.get("cluster default", "s3_read_resource"))
+    # _check_s3_read_write_resource(region, cluster, updated_config.get("cluster default", "s3_read_write_resource"))
+    #
+    # # Check new Additional IAM policies
+    # _check_role_attached_policy(region, cluster, updated_config.get("cluster default", "additional_iam_policies"))
+    #
+    # # Check old and new compute instance types
+    # _check_compute_instance_type(old_compute_instance, cluster.config.get("cluster default", "compute_instance_type"))
+    # _check_compute_instance_type(new_compute_instance, updated_config.get("cluster default", "compute_instance_type"))
+    #
+    # # Check old and new instance life cycle
+    # _check_ondemand_instance(old_compute_instance)
+    # _check_spot_instance(new_compute_instance)
+    #
+    # # Check old and new compute root volume size
+    # _check_compute_root_volume_size(
+    #     command_executor,
+    #     scheduler_commands,
+    #     test_datadir,
+    #     cluster.config.get("cluster default", "compute_root_volume_size"),
+    #     old_compute_node,
+    # )
+    # _check_compute_root_volume_size(
+    #     command_executor,
+    #     scheduler_commands,
+    #     test_datadir,
+    #     updated_config.get("cluster default", "compute_root_volume_size"),
+    #     new_compute_node,
+    # )
+    #
+    # # Check old and new extra_json
+    # _check_extra_json(command_executor, scheduler_commands, old_compute_node, "test_value_1")
+    # _check_extra_json(command_executor, scheduler_commands, new_compute_node, "test_value_2")
+    #
+    # # Check pre and post install on new nodes
+    # _check_script(
+    #     command_executor,
+    #     scheduler_commands,
+    #     new_compute_node,
+    #     "preinstall",
+    #     updated_config.get("cluster default", "pre_install_args"),
+    # )
+    # _check_script(
+    #     command_executor,
+    #     scheduler_commands,
+    #     new_compute_node,
+    #     "postinstall",
+    #     updated_config.get("cluster default", "post_install_args"),
+    # )
+
+
 def _check_max_queue(region, stack_name, queue_size):
     asg_max_size = get_max_asg_capacity(region, stack_name)
     assert_that(asg_max_size).is_equal_to(queue_size)
@@ -154,14 +256,9 @@ def _add_compute_nodes(scheduler_commands, number_of_nodes=1):
     number_of_nodes = len(initial_compute_nodes) + number_of_nodes
     # submit a job to perform a scaling up action and have new instances
     result = scheduler_commands.submit_command("sleep 1", nodes=number_of_nodes)
-    scheduler_commands.assert_job_submitted(result.stdout)
-
-    estimated_scaleup_time = 8
-    watch_compute_nodes(
-        scheduler_commands=scheduler_commands,
-        max_monitoring_time=minutes(estimated_scaleup_time),
-        number_of_nodes=number_of_nodes,
-    )
+    job_id = scheduler_commands.assert_job_submitted(result.stdout)
+    scheduler_commands.wait_job_completed(job_id)
+    scheduler_commands.assert_job_succeeded(job_id)
 
     return [node for node in scheduler_commands.get_compute_nodes() if node not in initial_compute_nodes]
 

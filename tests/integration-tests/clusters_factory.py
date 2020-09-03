@@ -63,6 +63,8 @@ class Cluster:
         self.__cfn_outputs = None
         self.__cfn_resources = None
 
+        return result.stdout
+
     def delete(self, keep_logs=False):
         """Delete this cluster."""
         if self.has_been_deleted:
