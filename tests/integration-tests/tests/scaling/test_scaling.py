@@ -175,7 +175,7 @@ def test_hit_scaling(scheduler, region, instance, pcluster_config_reader, cluste
         num_dynamic_nodes=3,
         dynamic_instance_type=instance,
     )
-    _test_computemgtd_logic(
+    _test_clustermgtd_down_logic(
         remote_command_executor,
         scheduler_commands,
         cluster.cfn_name,
@@ -346,7 +346,7 @@ def _test_keep_or_replace_suspended_nodes(
     assert_num_instances_in_cluster(cluster_name, region, len(static_nodes))
 
 
-def _test_computemgtd_logic(
+def _test_clustermgtd_down_logic(
     remote_command_executor,
     scheduler_commands,
     cluster_name,
@@ -358,7 +358,7 @@ def _test_computemgtd_logic(
     dynamic_instance_type,
 ):
     """Test that computemgtd is able to shut nodes down when clustermgtd and slurmctld are offline."""
-    logging.info("Testing that nodes are shut down when clustermgtd and slurmctld are offline")
+    logging.info("Testing cluster protection logic when clustermgtd is down.")
     submit_initial_job(
         scheduler_commands,
         "sleep infinity",
@@ -367,8 +367,10 @@ def _test_computemgtd_logic(
         num_dynamic_nodes,
         other_options="--no-requeue",
     )
-    assert_initial_conditions(scheduler_commands, num_static_nodes, num_dynamic_nodes, partition)
-    logging.info("Killing clustermgtd and rewriting timestamp file")
+    static_nodes, dynamic_nodes = assert_initial_conditions(
+        scheduler_commands, num_static_nodes, num_dynamic_nodes, partition
+    )
+    logging.info("Killing clustermgtd and rewriting timestamp file to trigger timeout.")
     remote_command_executor.run_remote_script(str(test_datadir / "slurm_kill_clustermgtd.sh"), run_as_root=True)
     # Overwrite clusterctld heartbeat to trigger timeout path
     timestamp_format = "%Y-%m-%d %H:%M:%S.%f%z"
@@ -376,8 +378,26 @@ def _test_computemgtd_logic(
     remote_command_executor.run_remote_command(
         f"echo -n '{overwrite_time_str}' | sudo tee /opt/slurm/etc/pcluster/.slurm_plugin/clustermgtd_heartbeat"
     )
+    # Test that computemgtd will terminate compute nodes that are down or in power_save
+    # Put first static node and first dynamic node into DOWN
+    # Put rest of dynamic nodes into POWER_DOWN
+    logging.info("Asserting that computemgtd will terminate nodes in DOWN or POWER_SAVE")
+    _set_nodes_to_down_manually(scheduler_commands, static_nodes[:1] + dynamic_nodes[:1])
+    _set_nodes_to_power_down_manually(scheduler_commands, dynamic_nodes[1:])
+    wait_for_num_instances_in_cluster(cluster_name, region, num_static_nodes - 1)
+
+    logging.info("Testing that ResumeProgram launches no instance when clustermgtd is down")
+    submit_initial_job(
+        scheduler_commands,
+        "sleep infinity",
+        partition,
+        dynamic_instance_type,
+        num_dynamic_nodes,
+    )
+
     logging.info("Asserting that computemgtd is not self-terminating when slurmctld is up")
-    assert_num_instances_constant(cluster_name, region, desired=num_static_nodes + num_dynamic_nodes, timeout=2)
+    assert_num_instances_constant(cluster_name, region, desired=num_static_nodes - 1, timeout=2)
+
     logging.info("Killing slurmctld")
     remote_command_executor.run_remote_script(str(test_datadir / "slurm_kill_slurmctld.sh"), run_as_root=True)
     logging.info("Waiting for computemgtd to self-terminate all instances")
@@ -445,6 +465,13 @@ def _set_nodes_to_suspend_state_manually(scheduler_commands, compute_nodes):
 def _set_nodes_to_down_manually(scheduler_commands, compute_nodes):
     scheduler_commands.set_nodes_state(compute_nodes, state="down")
     _assert_compute_node_states(scheduler_commands, compute_nodes, expected_states=["down"])
+
+
+def _set_nodes_to_power_down_manually(scheduler_commands, compute_nodes):
+    scheduler_commands.set_nodes_state(compute_nodes, state="power_down")
+    time.sleep(5)
+    scheduler_commands.set_nodes_state(compute_nodes, state="resume")
+    _assert_compute_node_states(scheduler_commands, compute_nodes, expected_states=["idle~"])
 
 
 def _assert_compute_node_states(scheduler_commands, compute_nodes, expected_states):
