@@ -1,0 +1,48 @@
+plugins {
+    id("org.openapi.generator") version "5.0.0"
+}
+
+openApiValidate {
+    inputSpec = "$projectDir/model/openapi/ParallelCluster.openapi.json".toString()
+}
+
+openApiGenerate {
+    generatorName = "python-flask"
+    inputSpec = "$projectDir/model/openapi/ParallelCluster.openapi.json".toString()
+    outputDir = "$projectDir/generated".toString()
+}
+
+task generatePythonClient(type:Exec) {
+    workingDir "$projectDir"
+    commandLine "./openapi-generator-cli.sh -i model/openapi/ParallelCluster.openapi.json -l python -o generated/python-client"
+}
+
+task buildModel(type:Exec) {
+    workingDir "$projectDir/model"
+    commandLine "./build-model.sh"
+}
+
+task swaggerUI(type:Exec) {
+    workingDir "$projectDir/model"
+    commandLine "./run-swagger-ui.sh"
+}
+
+task redoc(type:Exec) {
+    workingDir "$projectDir/model"
+    commandLine "./generate-redoc-bundle.sh"
+}
+
+//task<Exec>("buildModel") {
+//    workingDir("$projectDir/model")
+//    commandLine("./build-model.sh")
+//}
+//
+//task<Exec>("swaggerUI") {
+//    workingDir("$projectDir/model")
+//    commandLine("./run-swagger-ui.sh")
+//}
+//
+//task<Exec>("redoc") {
+//    workingDir("$projectDir/model")
+//    commandLine("./generate-redoc-bundle.sh")
+//}
